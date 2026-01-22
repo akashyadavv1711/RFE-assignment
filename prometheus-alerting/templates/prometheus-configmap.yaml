@@ -1,0 +1,121 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "prometheus-alerting.fullname" . }}-prometheus-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prometheus-alerting.prometheus.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.prometheus.scrapeInterval }}
+      evaluation_interval: {{ .Values.prometheus.evaluationInterval }}
+      external_labels:
+        cluster: '{{ .Values.global.clusterName }}'
+        environment: '{{ .Values.global.environment }}'
+
+    rule_files:
+      - '/etc/prometheus/rules/*.yml'
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - '{{ include "prometheus-alerting.fullname" . }}-alertmanager:9093'
+
+    scrape_configs:
+      # Frontend tier
+      - job_name: 'frontend'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - default
+                - production
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: frontend
+          - source_labels: [__meta_kubernetes_pod_label_tier]
+            action: keep
+            regex: frontend
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+      # API tier
+      - job_name: 'api'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - default
+                - production
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: api
+          - source_labels: [__meta_kubernetes_pod_label_tier]
+            action: keep
+            regex: api
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+      # Database tier
+      - job_name: 'database'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - default
+                - production
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: database
+          - source_labels: [__meta_kubernetes_pod_label_tier]
+            action: keep
+            regex: database
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+      # Kubernetes API Server
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+      # Kubernetes Nodes
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      {{- with .Values.extraScrapeConfigs }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+{{- end }}
