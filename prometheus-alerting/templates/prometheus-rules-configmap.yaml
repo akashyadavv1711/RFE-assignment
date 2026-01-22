@@ -1,0 +1,164 @@
+{{- if .Values.alertRules.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "prometheus-alerting.fullname" . }}-prometheus-rules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prometheus-alerting.prometheus.labels" . | nindent 4 }}
+data:
+  application.rules.yml: |
+    groups:
+      - name: application_slo_alerts
+        interval: 30s
+        rules:
+          {{- if .Values.alertRules.application.highErrorRate.enabled }}
+          - alert: HighServerErrorRate
+            expr: |
+              (
+                sum(rate(http_requests_total{status=~"5.."}[5m])) by (job, tier, namespace)
+                /
+                sum(rate(http_requests_total[5m])) by (job, tier, namespace)
+              ) * 100 > {{ .Values.alertRules.application.highErrorRate.threshold }}
+            for: {{ .Values.alertRules.application.highErrorRate.duration }}
+            labels:
+              severity: critical
+              tier: "{{`{{ $labels.tier }}`}}"
+              component: "{{`{{ $labels.job }}`}}"
+              namespace: "{{`{{ $labels.namespace }}`}}"
+            annotations:
+              summary: "High 5xx error rate on {{`{{ $labels.job }}`}}"
+              description: "{{`{{ $labels.job }}`}} in namespace {{`{{ $labels.namespace }}`}} ({{`{{ $labels.tier }}`}}) has a 5xx error rate of {{`{{ $value | humanizePercentage }}`}} over the last 5 minutes. This exceeds the {{ .Values.alertRules.application.highErrorRate.threshold }}% SLO threshold."
+              impact: "Users are experiencing service failures"
+              runbook: "https://runbooks.example.com/high-error-rate"
+              dashboard: "https://grafana.example.com/d/app-overview"
+          {{- end }}
+
+          {{- if .Values.alertRules.application.highLatency.enabled }}
+          - alert: HighP99Latency
+            expr: |
+              histogram_quantile(0.99, 
+                sum(rate(http_request_duration_seconds_bucket[5m])) by (job, tier, namespace, le)
+              ) > {{ .Values.alertRules.application.highLatency.threshold }}
+            for: {{ .Values.alertRules.application.highLatency.duration }}
+            labels:
+              severity: critical
+              tier: "{{`{{ $labels.tier }}`}}"
+              component: "{{`{{ $labels.job }}`}}"
+              namespace: "{{`{{ $labels.namespace }}`}}"
+            annotations:
+              summary: "P99 latency exceeds {{ .Values.alertRules.application.highLatency.threshold }}s on {{`{{ $labels.job }}`}}"
+              description: "{{`{{ $labels.job }}`}} in namespace {{`{{ $labels.namespace }}`}} ({{`{{ $labels.tier }}`}}) has a P99 latency of {{`{{ $value | humanizeDuration }}`}} over the last 5 minutes."
+              impact: "Users experiencing slow response times"
+              runbook: "https://runbooks.example.com/high-latency"
+              dashboard: "https://grafana.example.com/d/latency-breakdown"
+          {{- end }}
+
+          {{- if .Values.alertRules.application.elevatedErrorRate.enabled }}
+          - alert: ElevatedServerErrorRate
+            expr: |
+              (
+                sum(rate(http_requests_total{status=~"5.."}[5m])) by (job, tier, namespace)
+                /
+                sum(rate(http_requests_total[5m])) by (job, tier, namespace)
+              ) * 100 > {{ .Values.alertRules.application.elevatedErrorRate.threshold }}
+            for: {{ .Values.alertRules.application.elevatedErrorRate.duration }}
+            labels:
+              severity: warning
+              tier: "{{`{{ $labels.tier }}`}}"
+              component: "{{`{{ $labels.job }}`}}"
+              namespace: "{{`{{ $labels.namespace }}`}}"
+            annotations:
+              summary: "Elevated 5xx error rate on {{`{{ $labels.job }}`}}"
+              description: "{{`{{ $labels.job }}`}} in namespace {{`{{ $labels.namespace }}`}} ({{`{{ $labels.tier }}`}}) has a 5xx error rate of {{`{{ $value | humanizePercentage }}`}}. Approaching critical threshold."
+              impact: "Potential service degradation"
+              runbook: "https://runbooks.example.com/elevated-errors"
+          {{- end }}
+
+          {{- if .Values.alertRules.application.elevatedLatency.enabled }}
+          - alert: ElevatedP99Latency
+            expr: |
+              histogram_quantile(0.99, 
+                sum(rate(http_request_duration_seconds_bucket[5m])) by (job, tier, namespace, le)
+              ) > {{ .Values.alertRules.application.elevatedLatency.threshold }}
+            for: {{ .Values.alertRules.application.elevatedLatency.duration }}
+            labels:
+              severity: warning
+              tier: "{{`{{ $labels.tier }}`}}"
+              component: "{{`{{ $labels.job }}`}}"
+              namespace: "{{`{{ $labels.namespace }}`}}"
+            annotations:
+              summary: "Elevated P99 latency on {{`{{ $labels.job }}`}}"
+              description: "{{`{{ $labels.job }}`}} in namespace {{`{{ $labels.namespace }}`}} ({{`{{ $labels.tier }}`}}) has a P99 latency of {{`{{ $value | humanizeDuration }}`}}. Approaching critical threshold."
+              impact: "Performance degradation detected"
+              runbook: "https://runbooks.example.com/performance-degradation"
+          {{- end }}
+
+          {{- if .Values.alertRules.kubernetes.podDown.enabled }}
+          - alert: PodDown
+            expr: up{job=~"frontend|api|database"} == 0
+            for: {{ .Values.alertRules.kubernetes.podDown.duration }}
+            labels:
+              severity: critical
+              component: "{{`{{ $labels.job }}`}}"
+              namespace: "{{`{{ $labels.namespace }}`}}"
+              pod: "{{`{{ $labels.pod }}`}}"
+            annotations:
+              summary: "Pod {{`{{ $labels.pod }}`}} is down"
+              description: "Pod {{`{{ $labels.pod }}`}} in namespace {{`{{ $labels.namespace }}`}} has been unavailable for more than {{ .Values.alertRules.kubernetes.podDown.duration }}."
+              impact: "Service degradation or outage"
+              runbook: "https://runbooks.example.com/pod-down"
+          {{- end }}
+
+          {{- if .Values.alertRules.kubernetes.highPodRestartRate.enabled }}
+          - alert: HighPodRestartRate
+            expr: |
+              rate(kube_pod_container_status_restarts_total[15m]) > {{ .Values.alertRules.kubernetes.highPodRestartRate.threshold }}
+            for: {{ .Values.alertRules.kubernetes.highPodRestartRate.duration }}
+            labels:
+              severity: critical
+              namespace: "{{`{{ $labels.namespace }}`}}"
+              pod: "{{`{{ $labels.pod }}`}}"
+            annotations:
+              summary: "High restart rate for pod {{`{{ $labels.pod }}`}}"
+              description: "Pod {{`{{ $labels.pod }}`}} in namespace {{`{{ $labels.namespace }}`}} is restarting frequently ({{`{{ $value }}`}} restarts/sec)."
+              impact: "Service instability"
+              runbook: "https://runbooks.example.com/pod-restarts"
+          {{- end }}
+
+          {{- if .Values.alertRules.kubernetes.highMemoryUsage.enabled }}
+          - alert: HighMemoryUsage
+            expr: |
+              (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > {{ .Values.alertRules.kubernetes.highMemoryUsage.threshold }}
+            for: {{ .Values.alertRules.kubernetes.highMemoryUsage.duration }}
+            labels:
+              severity: warning
+              namespace: "{{`{{ $labels.namespace }}`}}"
+              pod: "{{`{{ $labels.pod }}`}}"
+            annotations:
+              summary: "High memory usage on pod {{`{{ $labels.pod }}`}}"
+              description: "Pod {{`{{ $labels.pod }}`}} in namespace {{`{{ $labels.namespace }}`}} is using {{`{{ $value }}`}}% of its memory limit."
+              impact: "Potential OOM kill"
+              runbook: "https://runbooks.example.com/high-memory"
+          {{- end }}
+
+          {{- if .Values.alertRules.kubernetes.highCPUUsage.enabled }}
+          - alert: HighCPUUsage
+            expr: |
+              (rate(container_cpu_usage_seconds_total[5m]) / container_spec_cpu_quota) * 100 > {{ .Values.alertRules.kubernetes.highCPUUsage.threshold }}
+            for: {{ .Values.alertRules.kubernetes.highCPUUsage.duration }}
+            labels:
+              severity: warning
+              namespace: "{{`{{ $labels.namespace }}`}}"
+              pod: "{{`{{ $labels.pod }}`}}"
+            annotations:
+              summary: "High CPU usage on pod {{`{{ $labels.pod }}`}}"
+              description: "Pod {{`{{ $labels.pod }}`}} in namespace {{`{{ $labels.namespace }}`}} is using {{`{{ $value }}`}}% of its CPU limit."
+              impact: "Performance degradation"
+              runbook: "https://runbooks.example.com/high-cpu"
+          {{- end }}
+
+          {{- with .Values.extraAlertRules }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+{{- end }}

@@ -1,0 +1,296 @@
+# Default values for prometheus-alerting
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global settings
+global:
+  # Cluster environment (prod, staging, dev)
+  environment: production
+  # Cluster name
+  clusterName: test-cluster
+
+# Prometheus configuration
+prometheus:
+  enabled: true
+  
+  image:
+    repository: prom/prometheus
+    tag: v2.48.0
+    pullPolicy: IfNotPresent
+  
+  # Resource limits
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
+  
+  # Persistent storage
+  persistence:
+    enabled: true
+    storageClass: ""  # Use default storage class
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  
+  # Data retention
+  retention:
+    time: 15d
+    size: 9GB
+  
+  # Service configuration
+  service:
+    type: NodePort
+    port: 9090
+    nodePort: 30090
+    annotations: {}
+  
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: prometheus.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    #  - secretName: prometheus-tls
+    #    hosts:
+    #      - prometheus.example.com
+  
+  # Scrape configuration
+  scrapeInterval: 15s
+  evaluationInterval: 15s
+  
+  # ServiceAccount
+  serviceAccount:
+    create: true
+    name: prometheus
+    annotations: {}
+  
+  # RBAC
+  rbac:
+    create: true
+
+# AlertManager configuration
+alertmanager:
+  enabled: true
+  
+  image:
+    repository: prom/alertmanager
+    tag: v0.26.0
+    pullPolicy: IfNotPresent
+  
+  # Resource limits
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  
+  # Persistent storage
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 5Gi
+  
+  # Service configuration
+  service:
+    type: NodePort
+    port: 9093
+    nodePort: 30093
+    annotations: {}
+  
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts:
+      - host: alertmanager.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  
+  # Notification channels
+  config:
+    global:
+      resolve_timeout: 5m
+      slack_api_url: ""  # Set via --set or separate values file
+      pagerduty_url: "https://events.pagerduty.com/v2/enqueue"
+    
+    # Route configuration
+    route:
+      receiver: 'slack-warnings'
+      group_by: ['alertname', 'cluster', 'tier', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+    
+    # Inhibition rules
+    inhibit_rules:
+      - source_match:
+          alertname: 'PodDown'
+        target_match_re:
+          alertname: '(HighServerErrorRate|HighP99Latency)'
+        equal: ['job', 'tier', 'namespace', 'pod']
+      
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'job', 'tier', 'namespace']
+    
+    # Receivers
+    receivers:
+      slack:
+        critical:
+          enabled: true
+          channel: '#alerts-critical'
+          username: 'Prometheus'
+          icon_emoji: ':fire:'
+        
+        warnings:
+          enabled: true
+          channel: '#alerts-warnings'
+          username: 'Prometheus'
+          icon_emoji: ':warning:'
+        
+        production:
+          enabled: true
+          channel: '#alerts-production'
+          username: 'Prometheus'
+          icon_emoji: ':kubernetes:'
+      
+      pagerduty:
+        enabled: true
+        serviceKey: ""  # Set via --set or separate values file
+        routingKey: ""
+
+# Alert Rules configuration
+alertRules:
+  enabled: true
+  
+  # Application SLO alerts
+  application:
+    # High error rate alert
+    highErrorRate:
+      enabled: true
+      threshold: 1  # percentage
+      duration: 5m
+    
+    elevatedErrorRate:
+      enabled: true
+      threshold: 0.5  # percentage
+      duration: 10m
+    
+    # High latency alert
+    highLatency:
+      enabled: true
+      threshold: 0.5  # seconds (500ms)
+      duration: 5m
+    
+    elevatedLatency:
+      enabled: true
+      threshold: 0.4  # seconds (400ms)
+      duration: 10m
+  
+  # Kubernetes alerts
+  kubernetes:
+    podDown:
+      enabled: true
+      duration: 2m
+    
+    highPodRestartRate:
+      enabled: true
+      threshold: 0.1  # restarts per second
+      duration: 5m
+    
+    highMemoryUsage:
+      enabled: true
+      threshold: 80  # percentage
+      duration: 10m
+    
+    highCPUUsage:
+      enabled: true
+      threshold: 80  # percentage
+      duration: 10m
+
+# Sample 3-tier application
+sampleApp:
+  enabled: false  # Set to true to deploy sample application
+  
+  frontend:
+    replicas: 2
+    image: nginx:alpine
+    port: 8080
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "100m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
+  
+  api:
+    replicas: 3
+    image: nginx:alpine
+    port: 8081
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "200m"
+      limits:
+        memory: "256Mi"
+        cpu: "500m"
+  
+  database:
+    replicas: 1
+    image: nginx:alpine
+    port: 9187
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "100m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
+
+# Additional scrape targets
+# Add your custom applications here
+extraScrapeConfigs: []
+# - job_name: 'my-custom-app'
+#   kubernetes_sd_configs:
+#     - role: pod
+#   relabel_configs:
+#     - source_labels: [__meta_kubernetes_pod_label_app]
+#       action: keep
+#       regex: my-app
+
+# Additional alert rules
+# Add your custom alert rules here
+extraAlertRules: []
+# - alert: CustomAlert
+#   expr: my_metric > 100
+#   for: 5m
+#   labels:
+#     severity: warning
+#   annotations:
+#     summary: "Custom alert fired"
+
+# Node selector for pod scheduling
+nodeSelector: {}
+
+# Tolerations for pod scheduling
+tolerations: []
+
+# Affinity rules
+affinity: {}

@@ -1,0 +1,21 @@
+apiVersion: v2
+name: prometheus-alerting
+description: A Helm chart for Prometheus and AlertManager with actionable SRE-focused alerting
+type: application
+version: 1.0.0
+appVersion: "2.48.0"
+keywords:
+  - prometheus
+  - alerting
+  - alertmanager
+  - monitoring
+  - sre
+  - kubernetes
+home: https://github.com/yourusername/prometheus-alerting
+sources:
+  - https://github.com/prometheus/prometheus
+  - https://github.com/prometheus/alertmanager
+maintainers:
+  - name: akash
+    email: akash@gmail.com   ###test mail id ###
+icon: https://prometheus.io/assets/prometheus_logo_grey.svg
